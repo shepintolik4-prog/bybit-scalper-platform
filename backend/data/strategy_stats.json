@@ -1,0 +1,21 @@
+{
+  "updated_at": 1774812937.1842144,
+  "strategies": {
+    "trend_following": {
+      "wins": 1,
+      "losses": 0,
+      "pnl_usdt": 2046.6157040344974,
+      "n": 1,
+      "winrate": 1.0
+    },
+    "ml_hybrid": {
+      "wins": 1,
+      "losses": 5,
+      "pnl_usdt": -262.2406960564648,
+      "n": 6,
+      "winrate": 0.1667
+    }
+  },
+  "disabled": [],
+  "boosted_strategies": []
+}

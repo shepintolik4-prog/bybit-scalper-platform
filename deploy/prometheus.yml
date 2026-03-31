@@ -1,0 +1,9 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: scalper-backend
+    metrics_path: /metrics
+    static_configs:
+      # Windows Docker Desktop: host.docker.internal
+      - targets: ["host.docker.internal:8000"]

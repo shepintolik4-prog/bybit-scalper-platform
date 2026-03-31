@@ -1,0 +1,15 @@
+[Unit]
+Description=Bybit Scalper Vite frontend (preview)
+After=network.target
+
+[Service]
+Type=simple
+User=scalper
+WorkingDirectory=/opt/scalper/frontend
+EnvironmentFile=-/opt/scalper/frontend/.env
+ExecStart=/usr/bin/npm run preview -- --host 0.0.0.0 --port 5173
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,16 @@
+[Unit]
+Description=Bybit Scalper external watchdog (health + optional restart)
+After=network.target bybit-scalper-backend.service
+
+[Service]
+Type=simple
+User=scalper
+WorkingDirectory=/opt/scalper/backend
+EnvironmentFile=-/opt/scalper/backend/.env
+Environment=WATCHDOG_ENABLED=true
+ExecStart=/opt/scalper/backend/.venv/bin/python -m app.services.watchdog
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

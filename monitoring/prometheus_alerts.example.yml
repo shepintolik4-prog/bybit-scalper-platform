@@ -1,0 +1,27 @@
+# Пример правил для Prometheus (скопируйте в конфиг и подставьте labels/env).
+groups:
+  - name: bybit_scalper
+    rules:
+      - alert: ScalperNoNewTrade
+        expr: scalper_seconds_since_last_trade_open > 14400
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Долго нет новых входов (4h+ порог в expr настройте сами)"
+
+      - alert: ScalperTickSlow
+        expr: histogram_quantile(0.9, rate(scalper_bot_tick_seconds_bucket[5m])) > 90
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Тики бота медленные (проверьте SCAN_ALL и лимиты Bybit)"
+
+      - alert: ScalperHighRejects
+        expr: rate(scalper_signal_rejects_total[15m]) > 5
+        for: 30m
+        labels:
+          severity: info
+        annotations:
+          summary: "Много отказов входа — проверьте пороги и логи"

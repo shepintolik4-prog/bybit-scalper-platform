@@ -1,0 +1,23 @@
+# Datadog Agent (DogStatsD UDP :8125). Подключение к основному compose:
+#   docker compose -f docker-compose.yml -f docker-compose.datadog.yml --profile datadog up -d
+# Нужен DD_API_KEY в .env. Backend: METRICS_ENABLED=true, DD_AGENT_HOST=datadog
+
+services:
+  datadog:
+    image: gcr.io/datadoghq/agent:7
+    environment:
+      DD_API_KEY: ${DD_API_KEY}
+      DD_SITE: ${DD_SITE:-datadoghq.com}
+      DD_DOGSTATSD_NON_LOCAL_TRAFFIC: "true"
+      DD_APM_ENABLED: "true"
+      DD_LOGS_ENABLED: "false"
+    ports:
+      - "8125:8125/udp"
+    profiles:
+      - datadog
+
+  backend:
+    environment:
+      METRICS_ENABLED: "true"
+      DD_AGENT_HOST: datadog
+      DD_DOGSTATSD_PORT: "8125"

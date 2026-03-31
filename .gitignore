@@ -1,0 +1,12 @@
+.env
+.venv
+backend/.venv
+backend/dev.db
+__pycache__
+*.pyc
+backend/models/*.json
+backend/models/*.pt
+backend/models/*.pkl
+node_modules
+frontend/dist
+.DS_Store

@@ -1,0 +1,57 @@
+{
+  "family": "bybit-scalper-api",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "512",
+  "memory": "1024",
+  "executionRoleArn": "arn:aws:iam::ACCOUNT_ID:role/ecsTaskExecutionRole",
+  "taskRoleArn": "arn:aws:iam::ACCOUNT_ID:role/bybitScalperTaskRole",
+  "containerDefinitions": [
+    {
+      "name": "api",
+      "image": "ACCOUNT_ID.dkr.ecr.REGION.amazonaws.com/bybit-scalper-api:latest",
+      "essential": true,
+      "portMappings": [{ "containerPort": 8000, "protocol": "tcp" }],
+      "environment": [
+        { "name": "LOG_LEVEL", "value": "INFO" },
+        { "name": "SENTRY_ENVIRONMENT", "value": "production" },
+        { "name": "METRICS_ENABLED", "value": "true" },
+        { "name": "DD_AGENT_HOST", "value": "127.0.0.1" },
+        { "name": "DD_DOGSTATSD_PORT", "value": "8125" }
+      ],
+      "secrets": [
+        {
+          "name": "DATABASE_URL",
+          "valueFrom": "arn:aws:secretsmanager:REGION:ACCOUNT_ID:secret:bybit-scalper/database"
+        },
+        {
+          "name": "SENTRY_DSN_BACKEND",
+          "valueFrom": "arn:aws:secretsmanager:REGION:ACCOUNT_ID:secret:bybit-scalper/sentry"
+        }
+      ],
+      "healthCheck": {
+        "command": ["CMD-SHELL", "curl -f http://127.0.0.1:8000/api/health || exit 1"],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 60
+      }
+    },
+    {
+      "name": "datadog-agent",
+      "image": "gcr.io/datadoghq/agent:7",
+      "essential": false,
+      "environment": [
+        { "name": "DD_SITE", "value": "datadoghq.com" },
+        { "name": "ECS_FARGATE", "value": "true" },
+        { "name": "DD_DOGSTATSD_NON_LOCAL_TRAFFIC", "value": "true" }
+      ],
+      "secrets": [
+        {
+          "name": "DD_API_KEY",
+          "valueFrom": "arn:aws:secretsmanager:REGION:ACCOUNT_ID:secret:datadog/api_key"
+        }
+      ]
+    }
+  ]
+}

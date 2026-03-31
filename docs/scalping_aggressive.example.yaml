@@ -1,0 +1,35 @@
+# Пример конфигурации агрессивного скальпинга (перенесите в backend/.env как KEY=VALUE).
+# Высокий риск: частые входы, узкие SL/TP, высокое плечо.
+
+aggressive_scalping_mode: true
+scalping_scan_timeframe: "1m"
+scalping_ohlcv_limit: 420
+scalping_min_ohlcv_bars: 48
+scalping_max_open_positions: 12
+scalping_risk_per_trade_pct: 3.5
+scalping_default_leverage: 16
+scalping_max_leverage_cap: 20
+scalping_sl_pct: 0.007
+scalping_tp_pct: 0.014
+scalping_trail_enabled: true
+scalping_trail_trigger_pct: 0.005
+scalping_trail_offset_pct: 0.0035
+scalping_rsi_period: 7
+scalping_rsi_oversold: 30
+scalping_rsi_overbought: 70
+scalping_ema_period: 20
+scalping_ema_deviation_pct: 0.004
+scalping_signal_min_edge_mult: 0.28
+scalping_min_conf_floor: 0.30
+scalping_skip_meta: true
+scalping_relax_macd: true
+scalping_skip_correlation: true
+scalping_skip_profit_diversification: true
+scalping_force_trade_after_minutes: 18
+scalping_force_trade_edge_mult: 0.25
+scalping_force_trade_conf_floor: 0.25
+scalping_max_trades_per_minute: 40
+use_atr_filter: false
+scan_all_usdt_perpetual: true
+scanner_min_quote_volume_usdt: 0
+scan_interval_sec: 5

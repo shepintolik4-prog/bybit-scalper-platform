@@ -1,0 +1,24 @@
+# Prometheus + Grafana для метрик backend (/metrics).
+# Запуск: docker compose -f docker-compose.monitoring.yml up -d
+# Укажите TARGET в .env или подставьте URL вашего uvicorn (например host.docker.internal:8000).
+
+services:
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./deploy/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_DEFAULT_THEME: dark
+    depends_on:
+      - prometheus
