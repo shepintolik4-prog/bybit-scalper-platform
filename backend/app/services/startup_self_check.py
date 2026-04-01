@@ -27,9 +27,9 @@ def run_full_system_check() -> dict[str, Any]:
         out["status"] = "ERROR"
 
     try:
-        from app.services import bybit_exchange
+        from app.exchange.bybit_client import BybitClient
 
-        rows = bybit_exchange.fetch_ohlcv("BTC/USDT:USDT", "5m", 5)
+        rows = BybitClient().fetch_ohlcv("BTC/USDT:USDT", "5m", 5)
         ok = bool(rows) and len(rows) >= 1
         out["checks"]["bybit_public_ohlcv"] = {"ok": ok, "bars": len(rows or [])}
         if not ok:

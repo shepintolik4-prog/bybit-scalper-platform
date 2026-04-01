@@ -10,16 +10,17 @@ import numpy as np
 import pandas as pd
 
 from app.config import get_settings
-from app.services import bybit_exchange
+from app.exchange.bybit_client import BybitClient
 
 _CACHE: dict[str, Any] = {"ts": 0.0, "corr": None, "rets": None}
+_BYBIT = BybitClient()
 
 
 def fetch_returns_matrix(symbols: list[str], limit: int = 120) -> pd.DataFrame | None:
     cols: dict[str, pd.Series] = {}
     for sym in symbols:
         try:
-            raw = bybit_exchange.fetch_ohlcv(sym, "5m", limit)
+            raw = _BYBIT.fetch_ohlcv(sym, "5m", limit)
             if len(raw) < 30:
                 continue
             df = pd.DataFrame(raw, columns=["ts", "o", "h", "l", "c", "v"])

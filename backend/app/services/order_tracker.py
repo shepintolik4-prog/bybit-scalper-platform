@@ -19,9 +19,10 @@ from app.monitoring.prometheus_metrics import (
     execution_order_partial_total,
     execution_orders_filled_total,
 )
-from app.services import bybit_exchange
+from app.exchange.bybit_client import BybitClient
 
 logger = logging.getLogger("scalper.order_tracker")
+_BYBIT = BybitClient()
 
 
 def _map_ccxt_status(status: str | None, filled: float, amount: float | None) -> str:
@@ -53,7 +54,7 @@ def track_order_status(
     """
     Подтянуть ордер с биржи и обновить TradeRecord (+ опционально Position по symbol).
     """
-    ex = bybit_exchange.create_exchange()
+    ex = _BYBIT.create_trading_exchange()
     ex.load_markets()
     order: dict[str, Any] | None = None
     err: str | None = None

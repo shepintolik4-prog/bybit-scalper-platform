@@ -16,9 +16,11 @@ from app.ml.features import build_feature_frame, feature_vector_last
 from app.ml.predictor import FEATURE_ORDER, get_predictor
 from app.ml.regime import classify_regime_row
 from app.ml.walk_forward import generate_walk_forward_indices
-from app.services import bybit_exchange
+from app.exchange.bybit_client import BybitClient
 from app.services.execution_model import apply_execution_price, latency_shift_index
 from app.services.risk import default_stops, update_trail
+
+_BYBIT = BybitClient()
 
 
 @dataclass
@@ -47,7 +49,7 @@ def _empty_realistic(symbol: str) -> RealisticBacktestSummary:
 
 
 def run_backtest(symbol: str, bars: int = 800, horizon: int = 3, thresh: float = 0.0004) -> BacktestSummary:
-    raw = bybit_exchange.fetch_ohlcv(symbol, "5m", bars)
+    raw = _BYBIT.fetch_ohlcv(symbol, "5m", bars)
     df = pd.DataFrame(raw, columns=["ts", "open", "high", "low", "close", "volume"])
     feat = build_feature_frame(df)
     if len(feat) < 120:
@@ -161,7 +163,7 @@ def run_realistic_backtest(symbol: str, bars: int = 1200) -> RealisticBacktestSu
     Walk-forward обучение, тест без look-ahead (purge), исполнение с spread/slippage/latency.
     """
     s = get_settings()
-    raw = bybit_exchange.fetch_ohlcv(symbol, "5m", bars)
+    raw = _BYBIT.fetch_ohlcv(symbol, "5m", bars)
     df = pd.DataFrame(raw, columns=["ts", "open", "high", "low", "close", "volume"])
     feat = build_feature_frame(df)
     if len(feat) < s.wf_train_bars + s.wf_test_bars + s.wf_purge_bars + 50:
@@ -297,7 +299,7 @@ def run_realistic_backtest(symbol: str, bars: int = 1200) -> RealisticBacktestSu
 def train_and_save(symbol: str, out_dir: str) -> str:
     import os
 
-    raw = bybit_exchange.fetch_ohlcv(symbol, "5m", 2000)
+    raw = _BYBIT.fetch_ohlcv(symbol, "5m", 2000)
     df = pd.DataFrame(raw, columns=["ts", "open", "high", "low", "close", "volume"])
     feat = build_feature_frame(df)
     close = feat["close"].values
@@ -335,7 +337,7 @@ def train_meta_and_save(symbol: str, out_dir: str) -> str:
 
     pred = get_predictor()
     mf = MetaFilter()
-    raw = bybit_exchange.fetch_ohlcv(symbol, "5m", 1800)
+    raw = _BYBIT.fetch_ohlcv(symbol, "5m", 1800)
     df = pd.DataFrame(raw, columns=["ts", "open", "high", "low", "close", "volume"])
     feat = build_feature_frame(df)
     close = feat["close"].values

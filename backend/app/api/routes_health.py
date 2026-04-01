@@ -5,7 +5,7 @@ import time
 
 from fastapi import APIRouter
 
-from app.services.bot_engine import engine
+from app.engine.trading_engine import engine
 from app.services.trading_control_store import load_control
 
 router = APIRouter(prefix="/api/health", tags=["health"])

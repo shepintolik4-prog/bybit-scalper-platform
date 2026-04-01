@@ -32,6 +32,7 @@ from app.monitoring.sentry_setup import init_sentry
 from app.services.bot_engine import engine as bot_engine
 from app.services.retrain_scheduler import register_retrain_jobs
 from app.services.startup_self_check import run_full_system_check
+from app.telegram.event_alerts import install_telegram_event_alerts
 
 _retrain_scheduler: BackgroundScheduler | None = None
 
@@ -84,6 +85,10 @@ async def lifespan(_: FastAPI):
     _retrain_scheduler = BackgroundScheduler()
     register_retrain_jobs(_retrain_scheduler)
     _retrain_scheduler.start()
+    try:
+        install_telegram_event_alerts()
+    except Exception:
+        logging.getLogger("scalper").exception("telegram_event_alerts_install_failed")
     bot_engine.ensure_worker()
     try:
         refresh_strategy_gauges()

@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 
 from app.api.deps import verify_api_secret
 from app.config import get_settings
-from app.services import bybit_exchange
+from app.exchange.bybit_client import BybitClient
 from app.services.portfolio_manager import (
     AllocationMethod,
     PortfolioConstraints,
@@ -20,6 +20,7 @@ from app.services.portfolio_manager import (
 )
 
 router = APIRouter(prefix="/api/portfolio", tags=["portfolio"])
+_BYBIT = BybitClient()
 
 
 class PortfolioAllocateRequest(BaseModel):
@@ -41,7 +42,7 @@ def _returns_matrix(symbols: list[str], timeframe: str, limit: int) -> pd.DataFr
     cols: dict[str, pd.Series] = {}
     for sym in symbols:
         try:
-            raw = bybit_exchange.fetch_ohlcv(sym, timeframe, limit)
+            raw = _BYBIT.fetch_ohlcv(sym, timeframe, limit)
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"{sym}: {e}") from e
         if len(raw) < 40:

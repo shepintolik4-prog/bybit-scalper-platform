@@ -9,13 +9,14 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
+from app.exchange.bybit_client import BybitClient
 from app.models.orm import BotSettings, Position, TradeRecord
 from app.monitoring.prometheus_metrics import consistency_errors_total
-from app.services import bybit_exchange
 from app.services.event_bus import E_CONSISTENCY_ERROR, emit
 from app.services.exchange_sync import fetch_positions_from_bybit
 
 logger = logging.getLogger("scalper.consistency")
+_BYBIT = BybitClient()
 
 _last_snapshot: dict[str, Any] = {}
 
@@ -59,7 +60,7 @@ def run_consistency_checks(db: Session, st: BotSettings) -> dict[str, Any]:
 
     if not st.paper_mode:
         try:
-            eq = bybit_exchange.create_exchange()
+            eq = _BYBIT.create_trading_exchange()
             bal = eq.fetch_balance()
             usdt_total = float(bal.get("USDT", {}).get("total") or 0)
             summary["exchange_usdt_total"] = usdt_total

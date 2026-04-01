@@ -7,11 +7,12 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.exchange.bybit_client import BybitClient
 from app.models.orm import BotSettings, Position
-from app.services import bybit_exchange
 from app.services.fund_risk import compute_fund_snapshot
 
 router = APIRouter(prefix="/api/risk", tags=["risk"])
+_BYBIT = BybitClient()
 
 
 def _equity_usdt(db: Session, st: BotSettings) -> float:
@@ -19,7 +20,7 @@ def _equity_usdt(db: Session, st: BotSettings) -> float:
         locked = sum(float(p.size_usdt) for p in db.query(Position).filter(Position.mode == "paper").all())
         return float(st.virtual_balance) + locked
     try:
-        ex = bybit_exchange.create_exchange()
+        ex = _BYBIT.create_trading_exchange()
         bal = ex.fetch_balance()
         return float(bal["USDT"]["total"] or 0)
     except Exception:

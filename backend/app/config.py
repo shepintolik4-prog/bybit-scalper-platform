@@ -61,6 +61,24 @@ class Settings(BaseSettings):
     selection_use_composite: bool = True
     trade_outcomes_path: str = "data/trade_outcomes.jsonl"
 
+    # --- Signal engine weights (edge); defaults are conservative ---
+    signal_w_orderbook: float = 0.28
+    signal_w_volume: float = 0.18
+    signal_w_breakout: float = 0.24
+    signal_w_funding: float = 0.10
+    signal_w_rsi: float = 0.20
+    trend_ema_period: int = 200
+    funding_rate_scale: float = 0.001
+
+    # Signal engine integration into selection_score
+    signal_engine_bonus_k: float = 0.35  # composite *= (1 + k * |signal_score|)
+
+    # Orderbook fetch (public REST). Keep small to avoid rate-limit.
+    orderbook_symbols_per_tick: int = 6
+    orderbook_depth_levels: int = 10
+    orderbook_fetch_limit: int = 50
+    orderbook_cache_ttl_sec: float = 1.2
+
     # Мульти-стратегии + маршрутизатор
     multi_strategy_enabled: bool = True
     strategy_router_mode: str = "regime"  # regime | ml_only
@@ -84,6 +102,9 @@ class Settings(BaseSettings):
     alert_telegram_bot_token: str = ""
     alert_telegram_chat_id: str = ""
     alert_log_path: str = "data/alerts.log"
+
+    telegram_allowed_chat_ids: str = ""
+    telegram_api_base: str = "http://127.0.0.1:8000"
 
     # Watchdog (отдельный процесс)
     watchdog_enabled: bool = False

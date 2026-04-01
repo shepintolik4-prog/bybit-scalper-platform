@@ -5,7 +5,7 @@ import time
 from fastapi import APIRouter
 
 from app.services.scan_state import get_snapshot
-from app.services.bot_engine import engine as bot_engine
+from app.engine.trading_engine import engine as bot_engine
 
 router = APIRouter(prefix="/api/scan", tags=["scan"])
 

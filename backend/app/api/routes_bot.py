@@ -5,7 +5,7 @@ from app.api.deps import verify_api_secret
 from app.database import get_db
 from app.models.orm import BotSettings
 from app.schemas.dto import BotStatusOut
-from app.services.bot_engine import engine
+from app.engine.trading_engine import engine
 
 router = APIRouter(prefix="/api/bot", tags=["bot"])
 

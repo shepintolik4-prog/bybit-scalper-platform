@@ -11,12 +11,16 @@ import time
 from typing import Any
 
 from app.config import get_settings
-from app.services import bybit_exchange
+from app.data.market_data import MarketData
+from app.exchange.bybit_client import BybitClient
 
 logger = logging.getLogger(__name__)
 
 # (symbol, timeframe, limit) -> (ts_monotonic, rows)
 _OHLCV_CACHE: dict[tuple[str, str, int], tuple[float, list[list[Any]]]] = {}
+
+_CLIENT = BybitClient()
+_MD = MarketData(_CLIENT)
 
 
 def clear_ohlcv_cache() -> None:
@@ -30,7 +34,8 @@ def fetch_all_symbols() -> list[str]:
 
 
 def _fetch_ohlcv_raw(symbol: str, timeframe: str, limit: int) -> list[list[Any]]:
-    return bybit_exchange.fetch_ohlcv(symbol, timeframe, limit)
+    # BybitClient already applies retry/backoff + error normalization.
+    return _CLIENT.fetch_ohlcv(symbol, timeframe, limit)
 
 
 def _timeframe_to_ms(timeframe: str) -> int:
@@ -96,10 +101,7 @@ def fetch_ohlcv_cached(symbol: str, timeframe: str = "5m", limit: int = 280) -> 
 
 def fetch_tickers_map() -> dict[str, dict[str, Any]]:
     """Все тикеры swap (для quoteVolume)."""
-    ex = bybit_exchange.create_public_exchange()
-    ex.load_markets()
-    tickers = ex.fetch_tickers()
-    return tickers if isinstance(tickers, dict) else {}
+    return _MD.fetch_tickers()
 
 
 def quote_volume_usdt(tickers: dict[str, dict[str, Any]], symbol: str) -> float:

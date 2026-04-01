@@ -139,7 +139,7 @@ def force_close_position_by_symbol(body: ForceCloseBySymbolIn, db: Session = Dep
     """
     Принудительно закрыть позицию по символу (paper/live). При двух режимах на один символ укажите mode.
     """
-    from app.services.bot_engine import engine as bot_engine
+    from app.engine.trading_engine import engine as bot_engine
 
     result = bot_engine.force_close_position_by_symbol(
         db,

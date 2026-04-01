@@ -19,12 +19,13 @@ from app.config import get_settings
 from app.ml.predictor import explanation_to_json
 from app.models.orm import BotSettings, Position, TradeRecord
 from app.monitoring.prometheus_metrics import execution_sync_mismatch_total
-from app.services import bybit_exchange
+from app.exchange.bybit_client import BybitClient
 from app.services.execution_model import apply_execution_price
 from app.services.trade_journal import append_trade_outcome
 from app.services.strategy_performance import record_trade_closed
 
 logger = logging.getLogger("scalper.exchange_sync")
+_BYBIT = BybitClient()
 
 
 @dataclass
@@ -54,7 +55,7 @@ def _parse_side_contracts(p: dict[str, Any]) -> tuple[str, float]:
 
 
 def fetch_positions_from_bybit() -> list[NormalizedExchangePosition]:
-    ex = bybit_exchange.create_exchange()
+    ex = _BYBIT.create_trading_exchange()
     ex.load_markets()
     rows = ex.fetch_positions()
     out: list[NormalizedExchangePosition] = []
@@ -381,7 +382,7 @@ def attempt_reduce_only_market_close(pos: Position) -> bool:
     False — ошибка API: не удалять позицию из БД в этом тике (повтор позже).
     """
     try:
-        ex = bybit_exchange.create_exchange()
+        ex = _BYBIT.create_trading_exchange()
         ex.load_markets()
         rows = fetch_positions_from_bybit()
         match = next((r for r in rows if r.symbol == pos.symbol and r.contracts >= 1e-8), None)

@@ -63,11 +63,8 @@ from app.services.correlation_service import passes_correlation_gate, total_expo
 from app.services.decision_audit import build_decision_chain
 from app.services.dynamic_risk import combined_risk_multiplier
 from app.services.fund_risk import check_fund_limits, rank_candidates_for_multi_execution, vol_scale_from_equity_history
-from app.services.execution_model import apply_execution_price
 from app.services.risk import (
     atr_invalid_dead,
-    compute_position_size,
-    default_stops,
     macd_filter_allows_entry,
     passes_volatility_regime,
     update_trail,
@@ -111,6 +108,13 @@ from app.strategies import RULE_STRATEGY_REGISTRY
 from app.strategies.fallback_strategy import signal_fallback_from_ohlcv_only
 from app.strategies.max_flow_strategies import force_volatility_entry_signal, pick_max_flow_signal
 
+# New modular layers (incremental migration)
+from app.data.market_data import MarketData
+from app.exchange.bybit_client import BybitClient
+from app.execution.order_manager import OrderManager
+from app.risk.risk_manager import RiskManager
+from app.signals.signal_engine import SignalEngine
+
 logger = get_logger("bot.engine")
 
 
@@ -125,6 +129,11 @@ class BotEngine:
         self.predictor = get_predictor()
         self.meta = get_meta_filter()
         self.lstm = LSTMScorer()
+        self._bybit = BybitClient()
+        self._md = MarketData(self._bybit)
+        self._signals = SignalEngine()
+        self._risk_mgr = RiskManager()
+        self._orders = OrderManager(self._bybit)
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
         self._peak_equity: float | None = None
@@ -330,6 +339,7 @@ class BotEngine:
                     "composite_score": expl.get("composite_score"),
                     "selection_score": expl.get("selection_score"),
                     "strategy_id": expl.get("strategy_id"),
+                    "signal_score": (expl.get("signal_engine") or {}).get("score"),
                 }
             )
         sel_c = None
@@ -468,35 +478,36 @@ class BotEngine:
             except Exception as e:
                 logger.warning("consistency_checks: %s", e)
 
-        # 0 или отрицательное значение в env = лимит max drawdown выключен глобально.
+        daily_ret = self._update_daily_loss_tracker(equity)
+        # Compatibility: st.max_drawdown_pct can be controlled via DB/UI, but global env can disable.
         dd_limit = float(st.max_drawdown_pct)
         if float(s.max_drawdown_pct) <= 0:
             dd_limit = 0.0
-        if dd_limit > 0 and dd > dd_limit:
-            self._log_reject("ALL", "max_portfolio_drawdown", dd_pct=round(dd, 3))
-            self._manage_open(db, st, paper, equity)
-            self._snapshot_equity(db, st, equity, paper)
-            symbols[:] = self._universe_symbols_for_dashboard()
-            self._scan_panel_overrides = {
-                "tick_skip": {
-                    "reason": "max_drawdown",
-                    "detail_ru": f"Просадка портфеля выше лимита ({round(dd, 2)}% > {dd_limit}%); OHLCV не запускался.",
-                }
-            }
-            return
+        rd_guard = self._risk_mgr.can_open_new_trade(
+            equity_usdt=equity,
+            daily_ret_pct=daily_ret,
+            drawdown_pct=dd,
+            max_drawdown_pct=dd_limit,
+            daily_loss_limit_pct=float(s.daily_loss_limit_pct),
+        )
+        if not rd_guard.allowed:
+            if rd_guard.reason == "max_drawdown":
+                self._log_reject("ALL", "max_portfolio_drawdown", dd_pct=round(dd, 3))
+                detail_ru = f"Просадка портфеля выше лимита ({round(dd, 2)}% > {dd_limit}%); OHLCV не запускался."
+            elif rd_guard.reason == "daily_loss_limit":
+                self._log_reject("ALL", "daily_loss_limit", daily_ret_pct=round(float(daily_ret or 0.0), 3))
+                detail_ru = f"Дневной лимит убытка ({round(float(daily_ret or 0.0), 2)}%); OHLCV не запускался."
+            else:
+                self._log_reject("ALL", rd_guard.reason)
+                detail_ru = f"RiskManager guard: {rd_guard.reason}; OHLCV не запускался."
 
-        daily_ret = self._update_daily_loss_tracker(equity)
-        # 0 или отрицательное значение = дневной лимит убытка выключен.
-        daily_loss_limit_pct = float(s.daily_loss_limit_pct)
-        if daily_loss_limit_pct > 0 and daily_ret is not None and daily_ret <= -daily_loss_limit_pct:
-            self._log_reject("ALL", "daily_loss_limit", daily_ret_pct=round(daily_ret, 3))
             self._manage_open(db, st, paper, equity)
             self._snapshot_equity(db, st, equity, paper)
             symbols[:] = self._universe_symbols_for_dashboard()
             self._scan_panel_overrides = {
                 "tick_skip": {
-                    "reason": "daily_loss_limit",
-                    "detail_ru": f"Дневной лимит убытка ({round(daily_ret, 2)}%); OHLCV не запускался.",
+                    "reason": rd_guard.reason,
+                    "detail_ru": detail_ru,
                 }
             }
             return
@@ -652,6 +663,8 @@ class BotEngine:
         weak_bucket_fa: list[dict[str, Any]] = []
 
         router_counts: dict[str, int] = {}
+        orderbook_budget = int(getattr(s, "orderbook_symbols_per_tick", 0) or 0)
+        ob_fetched = 0
         for sym in symbols:
             raw = ohlcv_by_sym.get(sym, [])
             if not raw:
@@ -686,6 +699,23 @@ class BotEngine:
                     threshold=float(s.scanner_min_last_bar_volume),
                 )
                 continue
+
+            # SignalEngine (edge): compute once per symbol per tick and attach to explanations.
+            # This is non-breaking: we don't change decision logic yet, only enrich telemetry/snapshot.
+            orderbook = None
+            try:
+                if orderbook_budget > 0 and ob_fetched < orderbook_budget:
+                    orderbook = self._md.fetch_orderbook(
+                        sym,
+                        limit=int(getattr(s, "orderbook_fetch_limit", 50)),
+                    )
+                    ob_fetched += 1
+            except Exception:
+                orderbook = None
+            try:
+                sig_out = self._signals.evaluate(symbol=sym, ohlcv=raw, orderbook=orderbook, funding_rate=None)
+            except Exception:
+                sig_out = {"symbol": sym, "score": 0.0, "components": {}, "weights": {}}
             forced_fallback = False
             fb_sig_cached = None
             strict_df = build_feature_frame(df)
@@ -902,6 +932,11 @@ class BotEngine:
                 qv = market_scanner.quote_volume_usdt(tickers, sym)
                 liq = market_scanner.liquidity_score_from_quote_vol(qv, ref=float(eff_liquidity_ref))
                 composite = abs(float(combined_adj)) * float(conf) * liq * float(atr_score_sel)
+                try:
+                    sig_score = float((sig_out or {}).get("score") or 0.0)
+                    composite *= 1.0 + float(getattr(s, "signal_engine_bonus_k", 0.0)) * abs(sig_score)
+                except Exception:
+                    pass
                 selection_score = composite if s.selection_use_composite else abs(float(combined_adj))
                 expl["confidence_for_side"] = round(conf, 4)
                 expl["liquidity_score"] = round(liq, 4)
@@ -909,6 +944,7 @@ class BotEngine:
                 expl["risk_score_atr_band"] = round(float(atr_score_sel), 4)
                 expl["composite_score"] = round(composite, 6)
                 expl["selection_score"] = round(selection_score, 6)
+                expl["signal_engine"] = sig_out
                 expl["quote_volume_24h_proxy"] = round(qv, 2)
                 expl["feature_pipeline"] = "full_aggressive_max_flow"
                 expl["filters_relaxed"] = {
@@ -1129,6 +1165,11 @@ class BotEngine:
                 ref=float(eff_liquidity_ref),
             )
             composite = abs(float(combined_adj)) * float(conf) * liq * float(atr_score_sel)
+            try:
+                sig_score = float((sig_out or {}).get("score") or 0.0)
+                composite *= 1.0 + float(getattr(s, "signal_engine_bonus_k", 0.0)) * abs(sig_score)
+            except Exception:
+                pass
             selection_score = composite if s.selection_use_composite else abs(float(combined_adj))
             expl["confidence_for_side"] = round(conf, 4)
             expl["liquidity_score"] = round(liq, 4)
@@ -1136,6 +1177,7 @@ class BotEngine:
             expl["risk_score_atr_band"] = round(float(atr_score_sel), 4)
             expl["composite_score"] = round(composite, 6)
             expl["selection_score"] = round(selection_score, 6)
+            expl["signal_engine"] = sig_out
             expl["quote_volume_24h_proxy"] = round(qv, 2)
             expl["feature_pipeline"] = (
                 "aggressive_scalp"
@@ -1476,7 +1518,7 @@ class BotEngine:
                 side = "buy" if combined > 0 else "sell"
                 atr = feats["atr14"]
                 tp_sc = float(expl.get("strategy_tp_scale") or 1.0)
-                rd = default_stops(side, last_mid, atr, regime=reg, tp_scale=tp_sc)
+                rd = self._risk_mgr.default_stops(side, last_mid, atr, regime=reg, tp_scale=tp_sc)
                 if fa:
                     lev = min(
                         max(int(st.leverage), int(s.full_aggressive_min_leverage)),
@@ -1495,12 +1537,12 @@ class BotEngine:
                 sl = rd.stop_price
                 tp = rd.take_profit_price
                 rm = regime_multipliers(reg)
-                size = compute_position_size(
-                    iter_equity,
-                    last_mid,
-                    sl,
-                    risk_pct_open,
-                    lev,
+                size = self._risk_mgr.compute_position_size(
+                    equity=iter_equity,
+                    entry=last_mid,
+                    stop_price=sl,
+                    risk_pct=risk_pct_open,
+                    leverage=lev,
                     risk_mult=risk_m,
                     regime_size_mult=float(rm["size"]),
                 )
@@ -1576,7 +1618,7 @@ class BotEngine:
                     fund_ok=True,
                     adaptive_bias=edge_bias,
                 )
-                fr = apply_execution_price(last_mid, side)
+                fr = self._orders.apply_execution_price(last_mid, side)
                 entry = fr.fill_price
                 expl["execution"] = {
                     "mid": last_mid,
@@ -1783,7 +1825,7 @@ class BotEngine:
 
                 order_resp: dict[str, Any] | None = None
                 try:
-                    ex = bybit_exchange.create_exchange()
+                    ex = self._bybit.create_trading_exchange()
                     ex.load_markets()
                     amt = (size_usdt * lev) / price
                     amt = float(ex.amount_to_precision(symbol, amt))
@@ -1997,7 +2039,7 @@ class BotEngine:
         db.flush()
 
         long_side = _side_is_long(pos.side)
-        frx = apply_execution_price(exit_price, "sell" if long_side else "buy")
+        frx = self._orders.apply_execution_price(exit_price, "sell" if long_side else "buy")
         exit_fill = frx.fill_price
         pnl_pct = (
             (exit_fill - pos.entry_price) / pos.entry_price * (1 if long_side else -1) * pos.leverage
@@ -2184,7 +2226,7 @@ class BotEngine:
                 if not st2:
                     return {"ok": False, "error": "no_bot_settings"}
                 try:
-                    cands = bybit_exchange.fetch_mark_price_candidates(
+                    cands = self._bybit.fetch_mark_price_candidates(
                         pos2.symbol,
                         prefer_ticker=bool(self.settings.paper_mark_prefer_ticker),
                     )
@@ -2254,7 +2296,7 @@ class BotEngine:
                     if not st2:
                         continue
                     try:
-                        cands = bybit_exchange.fetch_mark_price_candidates(
+                        cands = self._bybit.fetch_mark_price_candidates(
                             p.symbol,
                             prefer_ticker=bool(self.settings.paper_mark_prefer_ticker),
                         )
@@ -2334,7 +2376,7 @@ class BotEngine:
                     if not st2:
                         continue
                     try:
-                        cands = bybit_exchange.fetch_mark_price_candidates(
+                        cands = self._bybit.fetch_mark_price_candidates(
                             p2.symbol,
                             prefer_ticker=bool(self.settings.paper_mark_prefer_ticker),
                         )
@@ -2380,7 +2422,7 @@ class BotEngine:
                 return {"ok": False, "error": "no_bot_settings"}
             sym = pos2.symbol
             try:
-                cands = bybit_exchange.fetch_mark_price_candidates(
+                cands = self._bybit.fetch_mark_price_candidates(
                     pos2.symbol,
                     prefer_ticker=bool(self.settings.paper_mark_prefer_ticker),
                 )
@@ -2434,7 +2476,7 @@ class BotEngine:
             if live_syms:
                 marks = fetch_position_marks_for_symbols(live_syms)
                 try:
-                    ex = bybit_exchange.create_exchange()
+                    ex = self._bybit.create_trading_exchange()
                     ex.load_markets()
                     for sym in live_syms:
                         try:
@@ -2465,7 +2507,7 @@ class BotEngine:
                 except Exception:
                     # Фолбэк: старый путь через mark candidates (может быть медленно/лимитно).
                     try:
-                        cands = bybit_exchange.fetch_mark_price_candidates(
+                        cands = self._bybit.fetch_mark_price_candidates(
                             pos.symbol,
                             prefer_ticker=bool(s.paper_mark_prefer_ticker),
                         )
@@ -2495,7 +2537,7 @@ class BotEngine:
                     mark_lo = mark_hi = cur
                 else:
                     try:
-                        cands = bybit_exchange.fetch_mark_price_candidates(
+                        cands = self._bybit.fetch_mark_price_candidates(
                             pos.symbol,
                             prefer_ticker=bool(s.paper_mark_prefer_ticker),
                         )
@@ -2632,7 +2674,7 @@ class BotEngine:
                 # иначе 1m-свеча > MARK_PRICE_MAX_STALE_SEC залипает позицию навсегда.
                 if exit_price is None:
                     atr = abs(pos.entry_price - pos.stop_loss) / 1.5
-                    rd = default_stops(
+                    rd = self._risk_mgr.default_stops(
                         "buy" if _side_is_long(pos.side) else "sell",
                         pos.entry_price,
                         atr,
@@ -2744,7 +2786,7 @@ class BotEngine:
 
     def _fetch_live_equity(self) -> float:
         try:
-            ex = bybit_exchange.create_exchange()
+            ex = self._bybit.create_trading_exchange()
             bal = ex.fetch_balance()
             return float(bal["USDT"]["total"] or 0)
         except Exception:

@@ -8,7 +8,7 @@ from fastapi import APIRouter
 from app.config import get_settings
 from app.services.adaptive_state import load_adaptive
 from app.services.autonomy_context import build_tick_context
-from app.services.bot_engine import engine as bot_engine
+from app.engine.trading_engine import engine as bot_engine
 
 router = APIRouter(prefix="/api/autonomy", tags=["autonomy"])
 
